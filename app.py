@@ -28,7 +28,8 @@ CORS(app)
 @app.route('/background', methods=['GET'])
 def get_background():
     try:
-        response = supabase.table('app_data').select('background_url').eq('id', 1).single().execute()
+        # Check if a row exists. We assume only one row will ever be in this table.
+        response = supabase.table('app_data').select('background_url').limit(1).single().execute()
         url = response.data.get('background_url', '') if response.data else ''
         return jsonify({'url': url})
     except Exception as e:
@@ -37,13 +38,10 @@ def get_background():
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    print("--- New Upload Request Received ---")
     if 'file' not in request.files:
-        print("Upload error: No file part in request")
         return jsonify({'error': 'No file part'}), 400
     file = request.files['file']
     if file.filename == '':
-        print("Upload error: No file selected")
         return jsonify({'error': 'No file selected'}), 400
 
     filename = secure_filename(file.filename)
@@ -52,7 +50,6 @@ def upload_file():
     try:
         file_content = file.read()
         file_mimetype = file.content_type
-        print(f"Step 1/3: Attempting to upload '{unique_filename}' to bucket 'backgrounds'.")
         
         # Step 1: Upload to Storage
         supabase.storage.from_('backgrounds').upload(
@@ -60,27 +57,30 @@ def upload_file():
             file=file_content,
             file_options={"content-type": file_mimetype}
         )
-        print("Step 1/3: SUCCESS - File uploaded to storage.")
         
         # Step 2: Get Public URL
-        print("Step 2/3: Getting public URL...")
         public_url = supabase.storage.from_('backgrounds').get_public_url(unique_filename)
-        print(f"Step 2/3: SUCCESS - Got public URL: {public_url}")
 
-        # Step 3: Update Database
-        print("Step 3/3: Updating database...")
-        update_response = supabase.table('app_data').update({'background_url': public_url}).eq('id', 1).execute()
+        # Step 3: Update or Insert into Database (Self-healing logic)
+        print("Attempting to update or insert background URL in database...")
+        # Check if a row already exists
+        response = supabase.table('app_data').select('id').limit(1).execute()
+
+        if response.data:
+            # A row exists, so UPDATE it
+            row_id = response.data[0]['id']
+            print(f"Found existing row with id {row_id}. Updating it.")
+            supabase.table('app_data').update({'background_url': public_url}).eq('id', row_id).execute()
+        else:
+            # No row exists, so INSERT a new one
+            print("No existing row found. Inserting a new one.")
+            supabase.table('app_data').insert({'background_url': public_url}).execute()
         
-        if not update_response.data:
-             raise Exception("Database update failed. The server did not receive a confirmation after the update.")
-
-        print(f"Step 3/3: SUCCESS - Database updated. Response: {update_response.data}")
-        print("--- Upload process successful. ---")
+        print("Database operation successful.")
         return jsonify({'success': True, 'url': public_url})
 
     except Exception as e:
         print("!!! AN EXCEPTION OCCURRED DURING UPLOAD !!!")
-        print(f"Error Type: {type(e).__name__}")
         print(f"Error Details: {e}")
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
@@ -96,7 +96,7 @@ def update_todos():
     new_todos = request.json
     supabase.table('todos').delete().neq('id', -1).execute()
     if new_todos:
-        supabase.table('todos').insert(new_todos).execute()
+        supabase.table('todos').insert(new_dos).execute()
     return jsonify({'success': True})
 
 @app.route('/events', methods=['GET'])
