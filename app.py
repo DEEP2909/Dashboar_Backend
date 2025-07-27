@@ -1,4 +1,5 @@
 import os
+import json
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from supabase import create_client, Client
@@ -6,7 +7,6 @@ from werkzeug.utils import secure_filename
 import datetime
 
 # --- Supabase Configuration ---
-# These will be set as environment variables on your hosting platform (e.g., Render)
 url: str = os.environ.get("SUPABASE_URL")
 key: str = os.environ.get("SUPABASE_KEY")
 supabase: Client = create_client(url, key)
@@ -17,16 +17,14 @@ CORS(app)
 
 # --- API Endpoints ---
 
-# Endpoint for the background image
 @app.route('/background', methods=['GET'])
 def get_background():
     try:
-        response = supabase.table('app_data').select('background_url').limit(1).single().execute()
+        response = supabase.table('app_data').select('background_url').eq('id', 1).single().execute()
         url = response.data.get('background_url', '') if response.data else ''
         return jsonify({'url': url})
     except Exception as e:
-        print(f"Error getting background: {e}")
-        return jsonify({'url': ''})
+        return jsonify({'url': '', 'error': str(e)})
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
@@ -37,32 +35,23 @@ def upload_file():
         return jsonify({'error': 'No file selected'}), 400
 
     filename = secure_filename(file.filename)
-    # Add a timestamp to make filenames unique
     unique_filename = f"{datetime.datetime.now().timestamp()}-{filename}"
 
     try:
-        # Upload to Supabase Storage
-        supabase.storage.from_('backgrounds').upload(unique_filename, file.read(), {
-            "content-type": file.content_type
-        })
-        # Get the public URL of the uploaded file
+        # 1. Upload to Supabase Storage
+        supabase.storage.from_('backgrounds').upload(unique_filename, file.read(), {"content-type": file.content_type})
+        
+        # 2. Get the public URL
         public_url = supabase.storage.from_('backgrounds').get_public_url(unique_filename)
 
-        # Update the background_url in the app_data table
-        # First, check if a row exists. If not, insert one.
-        response = supabase.table('app_data').select('id').limit(1).execute()
-        if response.data:
-            # Update the existing row
-            supabase.table('app_data').update({'background_url': public_url}).eq('id', response.data[0]['id']).execute()
-        else:
-            # Insert a new row
-            supabase.table('app_data').insert({'background_url': public_url}).execute()
+        # 3. Update the single row in the app_data table
+        supabase.table('app_data').update({'background_url': public_url}).eq('id', 1).execute()
 
         return jsonify({'success': True, 'url': public_url})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# Endpoints for the To-Do list
+# Endpoints for To-Do list and Special Events (These remain the same)
 @app.route('/todos', methods=['GET'])
 def get_todos():
     response = supabase.table('todos').select('*').execute()
@@ -71,14 +60,11 @@ def get_todos():
 @app.route('/todos', methods=['POST'])
 def update_todos():
     new_todos = request.json
-    # For simplicity, we delete all and insert new ones.
-    # A more advanced app would update/insert/delete individually.
-    supabase.table('todos').delete().neq('id', -1).execute() # Delete all rows
+    supabase.table('todos').delete().neq('id', -1).execute()
     if new_todos:
         supabase.table('todos').insert(new_todos).execute()
     return jsonify({'success': True})
 
-# Endpoints for Special Events
 @app.route('/events', methods=['GET'])
 def get_events():
     response = supabase.table('special_events').select('*').execute()
@@ -92,6 +78,5 @@ def update_events():
         supabase.table('special_events').insert(new_events).execute()
     return jsonify({'success': True})
 
-# --- Run the App (for local testing) ---
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
