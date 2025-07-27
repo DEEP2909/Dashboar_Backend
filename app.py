@@ -28,7 +28,6 @@ CORS(app)
 @app.route('/background', methods=['GET'])
 def get_background():
     try:
-        # Check if a row exists. We assume only one row will ever be in this table.
         response = supabase.table('app_data').select('background_url').limit(1).single().execute()
         url = response.data.get('background_url', '') if response.data else ''
         return jsonify({'url': url})
@@ -62,26 +61,17 @@ def upload_file():
         public_url = supabase.storage.from_('backgrounds').get_public_url(unique_filename)
 
         # Step 3: Update or Insert into Database (Self-healing logic)
-        print("Attempting to update or insert background URL in database...")
-        # Check if a row already exists
         response = supabase.table('app_data').select('id').limit(1).execute()
-
         if response.data:
-            # A row exists, so UPDATE it
             row_id = response.data[0]['id']
-            print(f"Found existing row with id {row_id}. Updating it.")
             supabase.table('app_data').update({'background_url': public_url}).eq('id', row_id).execute()
         else:
-            # No row exists, so INSERT a new one
-            print("No existing row found. Inserting a new one.")
             supabase.table('app_data').insert({'background_url': public_url}).execute()
         
-        print("Database operation successful.")
         return jsonify({'success': True, 'url': public_url})
 
     except Exception as e:
-        print("!!! AN EXCEPTION OCCURRED DURING UPLOAD !!!")
-        print(f"Error Details: {e}")
+        print(f"!!! AN EXCEPTION OCCURRED DURING UPLOAD: {e} !!!")
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
@@ -93,11 +83,19 @@ def get_todos():
 
 @app.route('/todos', methods=['POST'])
 def update_todos():
-    new_todos = request.json
-    supabase.table('todos').delete().neq('id', -1).execute()
-    if new_todos:
-        supabase.table('todos').insert(new_dos).execute()
-    return jsonify({'success': True})
+    try:
+        new_todos = request.json
+        # First, delete all existing todos for this user
+        supabase.table('todos').delete().neq('id', -1).execute() # This deletes all rows
+        # Then, insert the new list if it's not empty
+        if new_todos:
+            # ** THE FIX IS HERE: changed new_dos to new_todos **
+            supabase.table('todos').insert(new_todos).execute()
+        return jsonify({'success': True})
+    except Exception as e:
+        print(f"!!! AN EXCEPTION OCCURRED IN UPDATE_TODOS: {e} !!!")
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/events', methods=['GET'])
 def get_events():
@@ -106,11 +104,16 @@ def get_events():
 
 @app.route('/events', methods=['POST'])
 def update_events():
-    new_events = request.json
-    supabase.table('special_events').delete().neq('id', -1).execute()
-    if new_events:
-        supabase.table('special_events').insert(new_events).execute()
-    return jsonify({'success': True})
+    try:
+        new_events = request.json
+        supabase.table('special_events').delete().neq('id', -1).execute()
+        if new_events:
+            supabase.table('special_events').insert(new_events).execute()
+        return jsonify({'success': True})
+    except Exception as e:
+        print(f"!!! AN EXCEPTION OCCURRED IN UPDATE_EVENTS: {e} !!!")
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
