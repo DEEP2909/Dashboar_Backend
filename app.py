@@ -14,7 +14,6 @@ key: str = os.environ.get("SUPABASE_KEY")
 # --- Startup Check ---
 if not url or not key:
     print("FATAL ERROR: SUPABASE_URL and SUPABASE_KEY environment variables are not set.")
-    # In a real app, you might exit here, but for Render, we'll let it try and fail.
 else:
     print("Supabase credentials loaded successfully.")
 
@@ -49,36 +48,33 @@ def upload_file():
 
     filename = secure_filename(file.filename)
     unique_filename = f"{datetime.datetime.now().timestamp()}-{filename}"
-    print(f"Attempting to upload file: {unique_filename}")
-
+    
     try:
-        # 1. Read file content into memory
         file_content = file.read()
         file_mimetype = file.content_type
-        print(f"File read into memory. Size: {len(file_content)} bytes. Mimetype: {file_mimetype}")
-
-        # 2. Upload to Supabase Storage
-        print(f"Uploading to Supabase storage bucket 'backgrounds'...")
-        response = supabase.storage.from_('backgrounds').upload(
+        print(f"Step 1/3: Attempting to upload '{unique_filename}' to bucket 'backgrounds'.")
+        
+        # Step 1: Upload to Storage
+        supabase.storage.from_('backgrounds').upload(
             path=unique_filename,
             file=file_content,
             file_options={"content-type": file_mimetype}
         )
-        print("Storage upload step finished.")
+        print("Step 1/3: SUCCESS - File uploaded to storage.")
         
-        # 3. Get the public URL
-        print("Getting public URL...")
+        # Step 2: Get Public URL
+        print("Step 2/3: Getting public URL...")
         public_url = supabase.storage.from_('backgrounds').get_public_url(unique_filename)
-        print(f"Got public URL: {public_url}")
+        print(f"Step 2/3: SUCCESS - Got public URL: {public_url}")
 
-        # 4. Update the single row in the app_data table
-        print("Updating database with new URL...")
+        # Step 3: Update Database
+        print("Step 3/3: Updating database...")
         update_response = supabase.table('app_data').update({'background_url': public_url}).eq('id', 1).execute()
         
         if not update_response.data:
              raise Exception("Database update failed. The server did not receive a confirmation after the update.")
 
-        print(f"Database update successful. Response: {update_response.data}")
+        print(f"Step 3/3: SUCCESS - Database updated. Response: {update_response.data}")
         print("--- Upload process successful. ---")
         return jsonify({'success': True, 'url': public_url})
 
